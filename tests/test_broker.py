@@ -93,9 +93,9 @@ class TicketShape(unittest.TestCase):
         self.assertEqual(ticket.max_loss(no_plan), (None, 358.32))
 
 
-class DesktopConfig(unittest.TestCase):
+class MCPConfig(unittest.TestCase):
     def test_example_is_paper_with_placeholder_keys(self):
-        with open(os.path.join(ROOT, "trader-broker", "claude_desktop_config.example.json")) as fh:
+        with open(os.path.join(ROOT, "trader-broker", "mcp_config.example.json")) as fh:
             server = json.load(fh)["mcpServers"]["alpaca"]
         self.assertEqual((server["command"], server["args"]), ("uvx", ["alpaca-mcp-server"]))
         self.assertEqual(server["env"]["ALPACA_PAPER_TRADE"], "true")
@@ -136,6 +136,34 @@ class Flow(unittest.TestCase):
         self.assertEqual(run(self.args("authorize", "--index", "1"))[0], 1)
         self.assertEqual(run(self.args("result", "--index", "1", "--status", "placed",
                                        "--broker-id", "auto123"))[0], 0)
+
+    def test_preserved_config_without_autonomy_defaults_to_unattended(self):
+        with open(self.cfg) as fh:
+            cfg = json.load(fh)
+        del cfg["autonomous"]
+        with open(self.cfg, "w") as fh:
+            json.dump(cfg, fh)
+        self.assertEqual(self.run_risk(), 0)
+        code, text, _ = run(self.args("show"))
+        self.assertEqual(code, 0)
+        self.assertNotIn('Reply "yes"', text)
+        self.assertEqual(run(self.args("authorize", "--index", "1"))[0], 0)
+        self.assertEqual(self.state_doc()["orders"][0]["authorization"], "autonomous")
+
+    def test_autonomy_still_blocks_risk_failures(self):
+        self.set_autonomous(True)
+        self.run_risk(now="2026-10-19 09:40")
+        code, _, err = run(self.args("authorize", "--index", "1", now="2026-10-19 09:40"))
+        self.assertEqual(code, 1)
+        self.assertIn("BLOCKED", err)
+        self.assertFalse(os.path.exists(self.state))
+
+    def test_invalid_autonomy_setting_is_not_interpreted_as_consent(self):
+        self.set_autonomous("true")
+        self.assertEqual(self.run_risk(), 0)
+        code, _, err = run(self.args("authorize", "--index", "1"))
+        self.assertEqual(code, 1)
+        self.assertIn("must be true or false", err)
 
     def test_autonomy_requires_configuration_and_supported_broker(self):
         self.assertEqual(self.run_risk(), 0)
@@ -193,7 +221,7 @@ class Flow(unittest.TestCase):
         self.assertIn('"stop_loss_stop_price": "358.32"', text)
         self.assertNotIn('"plan"', text)
         self.assertNotIn('"why"', text)
-        self.assertIn("Allow once", text)
+        self.assertIn("Manual mode", text)
 
         code, text, _ = run(self.args("approve", "--index", "1", "--reply", "sure"))
         self.assertEqual(code, 1)
@@ -233,6 +261,32 @@ class Flow(unittest.TestCase):
         res = check.check([tsla()], {"budget": 5000}, state=st, now=check.parse_now("2026-10-19 10:30"))
         self.assertIn("already placed today", " ".join(res["results"][0]["reasons"]))
         self.assertEqual((res["today"]["entries_placed"], res["today"]["loss_at_risk"]), (1, 46.88))
+
+    def test_autonomous_entry_and_exit_need_no_user_reply(self):
+        self.set_autonomous(True)
+        self.assertEqual(self.run_risk(), 0)
+        self.assertEqual(run(self.args("authorize", "--index", "1"))[0], 0)
+        self.assertEqual(run(self.args("result", "--index", "1", "--status", "placed",
+                                       "--broker-id", "entry", "--filled-qty", "8",
+                                       "--filled-price", "364.20", "--portfolio", self.pf))[0], 0)
+        late = "2026-10-19 15:55"
+        code, text, _ = run(["flatten", "--symbol", "TSLA", "--orders", self.orders,
+                             "--portfolio", self.pf, "--config", self.cfg,
+                             "--plan", PLAN_PATH, "--now", late])
+        self.assertEqual(code, 0)
+        self.assertIn("authorize --index 1", text)
+        self.assertNotIn("user's yes", text)
+        self.assertEqual(self.run_risk(now=late), 0)
+        self.assertEqual(run(self.args("authorize", "--index", "1", now=late))[0], 0)
+        self.assertEqual(run(self.args("result", "--index", "1", "--status", "placed",
+                                       "--broker-id", "exit", "--filled-qty", "8",
+                                       "--filled-price", "366.10", "--portfolio", self.pf,
+                                       now=late))[0], 0)
+        authorized = [r for r in self.state_doc()["orders"] if r["status"] == "approved"]
+        self.assertEqual([r["authorization"] for r in authorized], ["autonomous", "autonomous"])
+        self.assertTrue(all(r["reply"] is None for r in authorized))
+        with open(self.pf) as fh:
+            self.assertEqual(json.load(fh)["positions"], [])
 
     def test_flatten_by_the_close(self):
         self.run_risk()

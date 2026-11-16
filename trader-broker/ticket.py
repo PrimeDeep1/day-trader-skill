@@ -5,10 +5,10 @@ This tool never talks to a broker and never places anything. It does its
 work around authorization (configured autonomy or an explicit yes):
 
   authorize records configured autonomous authorization for ONE READY Alpaca
-            order, without a user reply. Requires config autonomous: true.
+            order, without a user reply. Enabled by default; explicit autonomous: false selects manual mode.
 
   show      renders each proposed order as a plain-English ticket plus the
-            exact JSON Claude will send to Alpaca's place_stock_order tool.
+            exact JSON the AI agent will send to Alpaca's place_stock_order tool.
             A bracket order shows its stop-loss, take-profit and the max loss
             at the stop. An order is READY only if trader-risk passed THIS
             exact order today (matched by fingerprint) and nobody has decided
@@ -17,7 +17,7 @@ work around authorization (configured autonomy or an explicit yes):
             word. It refuses "yes to all", "sure", "ok", a yes that names a
             different stock or amount, and any order that is not READY.
   decline   records a no.
-  result    records what happened after the Allow once / Deny card:
+  result    records what happened after broker submission:
             placed (with the broker's order id), denied, or failed.
   fill      records a fill in trader/portfolio.json (cash and shares).
   flatten   builds a sell ticket that closes a symbol's open position by
@@ -352,6 +352,13 @@ def kind_of(order, rv):
 
 # ---------------------------------------------------------------- rendering
 
+def autonomy_enabled(cfg):
+    value = cfg.get("autonomous", True)
+    if not isinstance(value, bool):
+        raise TicketError('autonomous must be true or false in config')
+    return value
+
+
 def render(order, idx, total, cfg, risk, state, today):
     ready, label, rv = status_of(order, risk, state, today)
     broker = str(cfg.get("broker", "alpaca")).lower()
@@ -366,21 +373,21 @@ def render(order, idx, total, cfg, risk, state, today):
     for w in (rv or {}).get("warnings", []):
         lines.append("  note: " + w)
     if broker == "ibkr":
-        lines.append("  Claude drafts this with the Interactive Brokers connector. IBKR sends it to your")
+        lines.append("  the AI agent drafts this with the Interactive Brokers connector. IBKR sends it to your")
         lines.append("  IBKR account, and it only goes to the market after you approve it there.")
     else:
-        lines.append("  Claude will call place_stock_order with exactly:")
+        lines.append("  the AI agent will call place_stock_order with exactly:")
         for l in json.dumps(tool_input(order), indent=2).splitlines():
             lines.append("    " + l)
         if is_bracket(order):
             lines.append("  Alpaca places the entry, then the stop-loss and the take-profit as two orders")
             lines.append("  that cancel each other: when one fills, the other is canceled.")
-    if ready and cfg.get("autonomous") is True and broker == "alpaca":
+    if ready and autonomy_enabled(cfg) and broker == "alpaca":
         lines.append("  Run ticket.py authorize --index %d, then submit the exact tool input." % idx)
     elif ready:
         lines.append("  Reply \"yes\" to place this one order, or \"no\" to skip it.")
         if broker != "ibkr":
-            lines.append("  Claude's own card then asks again: Allow once places it, Deny stops it.")
+            lines.append("  Manual mode: the host may also request tool permission.")
     return "\n".join(lines), ready
 
 
@@ -509,8 +516,8 @@ def cmd_approve(a):
     if not ready:
         raise TicketError("order %d is not ready: %s" % (a.index, label))
     autonomous = a.cmd == "authorize"
-    if autonomous and (cfg.get("autonomous") is not True or cfg.get("broker", "alpaca") != "alpaca"):
-        raise TicketError('authorize requires "autonomous": true and broker alpaca in config')
+    if autonomous and (not autonomy_enabled(cfg) or cfg.get("broker", "alpaca") != "alpaca"):
+        raise TicketError('authorize requires autonomy enabled and broker alpaca in config')
     ok, why = (True, "configured autonomous execution") if autonomous else parse_yes(
         a.reply, order, [o.get("symbol", "") for o in orders])
     if not ok:
@@ -532,7 +539,7 @@ def cmd_approve(a):
     else:
         print("Now call place_stock_order with exactly:")
         print(json.dumps(tool_input(order), indent=2))
-        print(("Then: " if autonomous else "Claude's card shows Allow once / Deny. Then: ") + "ticket.py result --index %d --status "
+        print(("Then: " if autonomous else "Manual authorization recorded. Then: ") + "ticket.py result --index %d --status "
               "placed|denied|failed" % a.index)
     return 0
 
@@ -632,7 +639,7 @@ def cmd_flatten(a):
     print("Next:")
     print("  1. trader-risk: check.py. A sell that only closes what you hold is never blocked by the daily")
     print("     limits or the entry window.")
-    if cfg.get("autonomous") is True and cfg.get("broker", "alpaca") == "alpaca":
+    if autonomy_enabled(cfg) and cfg.get("broker", "alpaca") == "alpaca":
         print("  2. ticket.py show, then ticket.py authorize --index 1; no per-order confirmation.")
     else:
         print("  2. ticket.py show, then the user's yes for this one order.")
@@ -661,7 +668,7 @@ def cmd_log(a):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Order tickets and your yes (trader-broker). Never places orders.")
+    ap = argparse.ArgumentParser(description="Order tickets and configured authorization (trader-broker). Never places orders.")
     sub = ap.add_subparsers(dest="cmd")
 
     def clock(p):
@@ -690,7 +697,7 @@ def main(argv=None):
     common(p)
     p.add_argument("--index", type=int, required=True)
     p.add_argument("--reply")
-    p = sub.add_parser("result", help="record what happened after the Allow once / Deny card")
+    p = sub.add_parser("result", help="record what happened after broker submission")
     common(p)
     p.add_argument("--index", type=int, required=True)
     p.add_argument("--status", required=True, choices=["placed", "denied", "failed"])

@@ -1,149 +1,106 @@
 ---
 name: trader-broker
 description: >-
-  Order Executor. Autonomously submits risk-passed Alpaca orders when configured,
-  paper by default. Records authorization, orders and fills; closes positions
-  by flat_by. Use after trader-risk passes or to execute or close a trade.
+  Order Executor for any AI agent. Submits risk-passed Alpaca orders autonomously,
+  paper by default, without per-order user approval. Prepares exact broker inputs,
+  records authorization and fills, and closes day trades by flat_by. Use after
+  trader-risk passes, or to execute or close a trade. Manual mode is opt-in.
 argument-hint: "[order number]"
 ---
 
 # trader-broker
 
-Only this skill submits orders. With `"autonomous": true` in
-`trader/config.json` and `"broker": "alpaca"`, execute without per-order user
-confirmation, including scheduled/background runs. Never invent a user reply.
-With autonomy absent or false, use `ticket.py approve --reply` with the user's
-actual explicit yes. IBKR retains its provider-required review.
+## Execution policy
 
-`${CLAUDE_SKILL_DIR}` is this skill's folder. `ticket.py` prepares and logs
-orders; it does not contact a broker. A running agent must call the broker.
+Autonomous execution is the default for Alpaca when `autonomous` is omitted or
+true in `trader/config.json`. The AI agent should continue to submission after
+risk PASS without asking for a fresh yes. This applies to entries, exits,
+scheduled tasks and background runs. Do not invent a user reply: use `authorize`.
+Only an explicit `"autonomous": false` selects manual confirmation via `approve`.
+Host policies and broker permissions still apply; this skill cannot grant them.
 
-## Setup A: Alpaca (official MCP server, Claude Desktop)
+Run commands from the repository root, or use the absolute installed script
+path. Keep the working directory at the project containing your `trader/` data.
 
-Alpaca's own server is github.com/alpacahq/alpaca-mcp-server (MIT). It runs on
-the user's computer inside Claude Desktop. It is not in Claude's connector
-directory. It trades on a **paper** account unless told otherwise. Checked
-against its source on 2026-10-20 (version 2.4.0).
-
-1. The user makes an Alpaca account and creates **paper trading** API keys in
-   the Alpaca dashboard. Paper keys are separate from live keys.
-2. The user installs `uv` (it provides `uvx`), from docs.astral.sh/uv.
-3. In Claude Desktop: Settings > Developer > Edit Config. That opens
-   `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/`,
-   Windows: `%APPDATA%\Claude\`). The user adds this block (also in
-   `claude_desktop_config.example.json` here) and types their own keys into the file:
-
-```json
-{
-  "mcpServers": {
-    "alpaca": {
-      "command": "uvx",
-      "args": ["alpaca-mcp-server"],
-      "env": {
-        "ALPACA_API_KEY": "paste your paper key here, in this file only",
-        "ALPACA_SECRET_KEY": "paste your paper secret here, in this file only",
-        "ALPACA_PAPER_TRADE": "true",
-        "ALPACA_TOOLSETS": "account,trading,stock-data"
-      }
-    }
-  }
-}
+```bash
+python3 trader-broker/ticket.py show
+python3 trader-broker/ticket.py authorize --index 1
+python3 trader-broker/ticket.py result --index 1 --status placed --broker-id ID
+python3 trader-broker/ticket.py fill --symbol TSLA --side buy --qty 8 --price 364.20
+python3 trader-broker/ticket.py flatten --symbol TSLA --qty 8
+python3 trader-broker/ticket.py log
 ```
 
-   The `env` block hands the keys to the server as environment variables.
-   **Keys never go in the chat.** Never ask for them, never read this file
-   back into the conversation, and if the user pastes a key anyway, tell them
-   to delete that message and make new keys in the Alpaca dashboard.
-   `ALPACA_PAPER_TRADE` is already true by default; writing it makes it
-   visible. `ALPACA_TOOLSETS` is optional and hides the tools they do not need.
-4. Restart Claude Desktop.
-5. **Set the tool permissions.** Customize > Connectors (Settings > Connectors
-   in older versions), open alpaca, and for each tool pick Always allow, Needs
-   approval or Blocked:
-   - `place_stock_order`: **Always allow** for configured autonomy; otherwise Needs approval.
-   - every other tool that places, changes, cancels or closes anything
-     (`cancel_order_by_id`, `replace_order_by_id`, `close_position`,
-     `update_account_config`): Needs approval. For autonomy, allow only
-     `cancel_order_by_id` as needed to close a bracket position.
-   - `place_option_order`, `place_crypto_order`, `close_all_positions`,
-     `cancel_all_orders`, `exercise_options_position`,
-     `do_not_exercise_options_position`: **Blocked** unless the user has a
-     reason and says so.
-   - read-only tools (`get_account_info`, `get_all_positions`, `get_open_position`,
-     `get_orders`, `get_clock`, `get_stock_snapshot`, `get_stock_latest_quote`):
-     Always allow is fine.
-6. Check it: ask Claude for the Alpaca account info (read only) and confirm
-   in the Alpaca dashboard that it is the paper account.
+`ticket.py` prepares and logs orders; it does not contact a broker. The running
+agent calls the broker tool with the exact printed JSON. A successful local
+authorization is not proof of submission or a fill.
 
-In Claude Code, for configured autonomy use `.claude/settings.json`:
-`"permissions": {"allow": ["mcp__alpaca__place_stock_order", "mcp__alpaca__cancel_order_by_id"]}`.
-Otherwise keep the order tool in `ask`. Host or broker restrictions still apply;
-these instructions cannot override them.
+## Connect Alpaca once
 
-**Bracket orders on Alpaca.** `place_stock_order` takes
-`take_profit_limit_price` and `stop_loss_stop_price` (and an optional
-`stop_loss_limit_price`). When either is there, the server sets
-`order_class` to "bracket" by itself; trader-budget writes it anyway so the
-ticket shows it. A bracket is whole shares only, with `time_in_force` day or
-gtc. After the entry fills, the stop-loss and the take-profit wait at the
-broker as two orders that cancel each other. They are day orders too, so they
-end at the close: one more reason to be flat by then.
+Use Alpaca's official MCP server: https://github.com/alpacahq/alpaca-mcp-server.
+`mcp_config.example.json` is a generic MCP example, not a universal host config.
+Map its command, arguments and environment into your agent's supported settings.
 
-## Setup B: Interactive Brokers (connector in Claude's directory)
+- Command: `uvx`; arguments: `alpaca-mcp-server`.
+- Store API keys in the host's secret environment/configuration, never in chat.
+- `ALPACA_PAPER_TRADE=true` selects paper trading. Never change it automatically.
+- `ALPACA_TOOLSETS=account,trading,stock-data` exposes trading as well as reads.
+- Allow `place_stock_order` and `cancel_order_by_id` for unattended execution.
+  Discover the installed server's actual tool names; host prefixes may differ.
+- Expose account, position, open-order, clock and quote reads for reconciliation.
+  Leave unrelated options, crypto and bulk-account operations disabled.
+- Reload the server and verify its account and effective paper/live endpoint.
 
-Interactive Brokers publishes a verified connector: claude.ai/directory/interactive-brokers
-(connector URL `https://api.ibkr.com/v1/api/mcp`). Add it from Customize >
-Connectors > Browse connectors and sign in to IBKR there, not in the chat.
-Its listing says Claude can draft trade instructions that are sent to the
-user's IBKR account for their review and approval, and that Claude never
-submits orders directly to the market. So with IBKR the final yes happens in
-IBKR as well. Set `"broker": "ibkr"` in `trader/config.json`. Set its tools
-that draft orders to Needs approval too.
+For Hermes Agent, use its supported `hermes mcp configure alpaca-paper` flow
+if that is the configured server name. Inspect local help if the command or
+server differs. Check both the server's `ALPACA_TOOLSETS` environment and
+Hermes's `mcp_servers.alpaca-paper.tools.include` allowlist; read-only toolsets
+or allowlists cannot submit orders. Configure unattended tool permissions using
+the installed Hermes version's supported settings. Reload the MCP connection
+and start a new chat to discard old loaded skill text. See `SETUP.md`.
 
-## Execution workflow
+An integration that only drafts orders for provider review (including some
+Interactive Brokers connectors) is not an autonomous execution backend. Use
+Alpaca for this workflow; do not claim to bypass provider review.
 
-1. Read `trader/config.json`, sync broker cash, positions and open orders into
-   `trader/portfolio.json`, and run `/trader-risk` on the final orders.
-2. Run `ticket.py show`. Only READY tickets can proceed. For each ticket in
-   autonomous Alpaca mode run `ticket.py authorize --index N`. Otherwise show
-   the ticket, ask for its explicit yes, and use `approve --index N --reply`.
-3. Only after successful authorization, call `place_stock_order` with exactly
-   the printed JSON. Do not ask for another yes in autonomous mode.
-4. Record `ticket.py result --index N --status placed --broker-id ID`, or
+## Execute one order
+
+1. Use a single active trading runner for this account and data directory.
+   Reconcile broker cash, positions and open orders into `trader/portfolio.json`.
+2. Run trader-risk on the final order. Only a PASS for today's exact fingerprint
+   is READY. BLOCK, stale checks or changed tickets require a fresh check.
+3. Run `ticket.py show`, then `ticket.py authorize --index N`. If autonomy is
+   explicitly false, instead show the ticket, obtain its yes and use
+   `ticket.py approve --index N --reply "the actual reply"`.
+4. After successful authorization, call `place_stock_order` with exactly the
+   printed JSON. Autonomous mode needs no per-order chat confirmation.
+5. Record `ticket.py result --index N --status placed --broker-id ID`, or
    `--status denied|failed --note REASON`. Record actual fills with
-   `--filled-qty Q --filled-price P` or `ticket.py fill`. Never record assumed
-   fills. After a timeout or ambiguous response, reconcile broker orders before
-   doing anything else; never blindly retry. A failed ticket needs a fresh
-   risk check and a new ticket decision before retrying.
-5. Before authorizing another order, sync broker state and rerun risk so daily
-   limits include prior submissions. Never batch-authorize against stale state.
+   `--filled-qty Q --filled-price P` or `ticket.py fill`. Never assume a fill.
+6. After a timeout or ambiguous response, reconcile broker orders before any
+   further write. Never blindly retry. Local fingerprint checks are not a
+   broker idempotency guarantee. Sync state and rerun risk before the next order.
 
-## Positions and the close
+## Monitor and close
 
-Register `alerts.py add --from-plan` and monitor positions. Bracket legs run
-at the broker. Record stop/target fills. At `flat_by`, reconcile holdings,
-run `ticket.py flatten --symbol SYMBOL --qty Q`, then `/trader-risk` and the
-same authorization workflow. Cancel only that position's open bracket legs,
-verify their status and remaining shares, then submit the closing ticket.
-Use autonomous authorization for exits too. A scheduler/running agent is
-required for monitoring and closing; this skill does not install one.
+Register `alerts.py add --from-plan` and monitor positions through the host's
+scheduler or running agent. Alpaca bracket legs handle the stop and target.
+Record their actual fills. At `flat_by`, reconcile holdings and open legs,
+run `ticket.py flatten --symbol SYMBOL --qty Q`, then trader-risk and the same
+autonomous authorization workflow. Cancel only this position's open bracket
+legs, verify cancellation and remaining shares, then submit the closing ticket.
 
-## What it never does
+The tools do not install a scheduler or support concurrent account runners.
+Do not claim local tests demonstrate unattended broker execution. Multi-runner
+reservations, broker idempotency and a persistent kill switch need additional
+execution infrastructure; this pack does not implement those guarantees.
 
-- Never submits without exact-order risk PASS and recorded authorization.
-- Scheduled/background execution requires configured autonomy and authorized host tools.
-- Never asks for, reads, stores or repeats API keys or passwords.
-- Never switches `ALPACA_PAPER_TRADE` or `"paper"` to live. The user does that themselves.
-- Never calls `close_all_positions`, `cancel_all_orders`, option or crypto order tools on its own.
-- Never promises a fill price: a market order and a stop fill at whatever the market gives.
+## Limits
 
-## Safety
-
-- Education and tooling, not financial advice. A PASS is a rules check, not a recommendation.
-- Paper trading by default (`"paper": true`). Going live is the user's own decision, in their own config.
-- Only trader-broker submits orders, after trader-risk passes the exact order today.
-  With `"autonomous": true` and Alpaca, execute via `ticket.py authorize` without
-  per-order user confirmation, including scheduled/background runs. Otherwise use
-  explicit per-order approval. Broker and host permissions must authorize execution.
-- No options, margin, short selling or leverage unless the config allows it and the user confirms.
-- Broker keys live in environment variables or the Claude Desktop config, never in the chat.
+- Never increase risk limits, change paper/live mode or widen instrument permissions
+  automatically. Autonomous execution uses the existing configured limits.
+- Never submit without exact-order trader-risk PASS and recorded authorization.
+- Never read, repeat or commit API keys or passwords.
+- Never call bulk cancel/close, option or crypto tools through this workflow.
+- A market or stop order can fill worse than the planned price.
+- Education and tooling, not financial advice. A PASS is a rules check.

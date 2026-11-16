@@ -1,6 +1,6 @@
 # The Day Trader skill
 
-11 Claude skills for day trading: scan thousands of charts, track breaking news, time every entry and exit, and replay every outcome before you risk a dollar.
+11 AI agent skills for day trading: scan thousands of charts, track breaking news, time every entry and exit, and replay every outcome before you risk a dollar.
 
 Free, MIT, no signup, no API key. The tools are plain Python that read free
 public data: Yahoo Finance charts, Nasdaq Trader's symbol lists, SEC EDGAR
@@ -13,8 +13,8 @@ craziest one is the Time Machine: before you risk a dollar, it replays the
 rest of the session 10,000 times from the stock's own recent bars, plus every
 past day the same setup fired, and tells you the honest odds.
 
-This fork enables autonomous Alpaca execution with `"autonomous": true` in
-`trader/config.json` (included in the example config). No per-trade chat approval
+This fork defaults to autonomous Alpaca execution, including existing configs
+without an `autonomous` field. Set it to false only to opt into manual mode. No per-trade chat approval
 is needed. Paper trading remains the default; risk limits still apply.
 
 > **Looking for the original Trader skill?** Copy an investor's 13F, the
@@ -22,41 +22,30 @@ is needed. Paper trading remains the default; risk limits still apply.
 > [github.com/Jakeschincariol/trader-skill](https://github.com/Jakeschincariol/trader-skill).
 > This repo is its day-trading sequel: the Trader skill v2.
 
-## Install
+## Install and update
 
-Paste this into Claude:
-
-```
-https://github.com/PrimeDeep1/day-trader-skill
-
-install skill
-```
-
-Or as a plugin, in Claude Code:
-
-```
-/plugin marketplace add PrimeDeep1/day-trader-skill
-/plugin install day-trader-skill@day-trader-skill
-```
-
-Claude Code namespaces plugin skills, so installed as a plugin they show up as
-`/day-trader-skill:trader-scanner` and so on. Copy the folders instead if you want
-plain `/trader-scanner`:
+Follow [SETUP.md](SETUP.md), including the copy-and-paste agent setup request.
+Load the root [SKILL.md](SKILL.md) as the orchestration skill, or install the
+individual skill folders using your AI agent host's supported loader.
 
 ```bash
 git clone https://github.com/PrimeDeep1/day-trader-skill.git
-cp -r day-trader-skill/trader-* ~/.claude/skills/
+cd day-trader-skill
+python3 configure.py
 ```
 
-Project-local instead of global: copy the same folders into your repo's
-`.claude/skills/`. No Claude Code at all? Paste any single `SKILL.md` at the
-top of a chat and it runs as a mode. You lose the Python tools, but the method
-works.
+The setup helper enables autonomous execution in new or existing config, backs
+up modified config, and preserves risk limits, paper/live settings and secrets.
+No API keys are needed for public research. Broker execution requires Alpaca
+credentials and authorized order tools. A running AI agent or host scheduler
+must drive the workflow; this repository is not a standalone trading daemon.
 
-The tools need Python 3.8 or newer. Nothing to pip install. The SEC tools
-(news filings, the analyst) ask you to identify yourself: put your name and
-email in `trader/config.json` (`"sec_user_agent": "Your Name you@example.com"`)
-or in the `SEC_USER_AGENT` environment variable.
+For Hermes, see [the host setup instructions](SETUP.md#hermes-agent). Reload
+MCP tools and start a new chat after updating to clear stale skill instructions.
+
+Python 3.8+ is required; no pip packages are needed for the bundled tools.
+SEC tools ask for a name and email in `SEC_USER_AGENT` or `sec_user_agent` in
+`trader/config.json`. Keep personal configuration out of version control.
 
 ## The eleven
 
@@ -159,14 +148,12 @@ arithmetic. It does not know your situation and it cannot see the future.
 Most people who day trade lose money. You can lose money. Decide for
 yourself, and talk to a licensed professional if you need advice.
 
-**Autonomous setup.** Copy `trader-budget/config.example.json` to
-`trader/config.json`, set your budget and risk limits, and connect Alpaca as
-explained in `trader-broker/SKILL.md`. Authorize the stock-order and specific
-bracket-cancellation tools in your agent host for unattended execution.
-A running agent/scheduler must drive the workflow; these skills alone are not
-a standalone robot. Host policies and broker permissions still apply. IBKR's
-connector retains its own review requirement. Set `"autonomous": false` for
-per-order approval. Do not change risk limits or live/paper mode automatically.
+**Autonomous setup.** Run `python3 configure.py`, connect the broker and authorize
+stock-order submission and individual bracket-leg cancellation in the host.
+Autonomy is enabled when omitted or true; only `"autonomous": false` selects
+manual confirmation. Risk checks still apply. Use one runner per account.
+Host policies and broker permissions cannot be overridden by these skills.
+Review [SETUP.md](SETUP.md) for readiness checks and execution limitations.
 
 **Paper first.** `"paper": true` is the default in `config.example.json`, and
 Alpaca's MCP server defaults to its paper account. Keys live in environment
@@ -201,6 +188,10 @@ wash sales likely. Nothing here is tax advice.
 ## Files
 
 ```
+SKILL.md           generic orchestration entry point
+SETUP.md           installation, Hermes setup and troubleshooting
+configure.py       enable autonomy while preserving existing config
+agent.json         descriptive metadata (not a host plugin schema)
 trader-scanner/     SKILL.md, scan.py
 trader-news/        SKILL.md, news.py
 trader-entry/       SKILL.md, entry.py
@@ -208,7 +199,7 @@ trader-exit/        SKILL.md, exit.py
 trader-timemachine/ SKILL.md, timemachine.py
 trader-risk/        SKILL.md, check.py
 trader-budget/      SKILL.md, size.py, config.example.json, targets.example.json
-trader-broker/      SKILL.md, ticket.py, claude_desktop_config.example.json
+trader-broker/      SKILL.md, ticket.py, mcp_config.example.json
 trader-alerts/      SKILL.md, alerts.py, alerts.example.json
 trader-analyst/     SKILL.md, facts.py, metrics.example.json
 trader-pelosi/      SKILL.md, ptr.py

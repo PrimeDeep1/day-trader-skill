@@ -30,7 +30,7 @@ Tool in this folder (standard library Python; `pdftotext` from poppler is
 optional, to read the PDFs locally):
 
 ```bash
-python3 "${CLAUDE_SKILL_DIR}/ptr.py" --help
+python3 "trader-pelosi/ptr.py" --help
 ```
 
 ## What it reads and writes
@@ -60,9 +60,9 @@ python3 "${CLAUDE_SKILL_DIR}/ptr.py" --help
 ## Step 1: what has been filed
 
 ```bash
-python3 "${CLAUDE_SKILL_DIR}/ptr.py" index --member pelosi
-python3 "${CLAUDE_SKILL_DIR}/ptr.py" index --since 2026-10-01        # every member
-python3 "${CLAUDE_SKILL_DIR}/ptr.py" index --member "Josh Gottheimer" --year 2025
+python3 "trader-pelosi/ptr.py" index --member pelosi
+python3 "trader-pelosi/ptr.py" index --since 2026-10-01        # every member
+python3 "trader-pelosi/ptr.py" index --member "Josh Gottheimer" --year 2025
 ```
 
 `--member` takes a last name, "First Last" or "Last, First", and repeats.
@@ -71,7 +71,7 @@ python3 "${CLAUDE_SKILL_DIR}/ptr.py" index --member "Josh Gottheimer" --year 202
 ## Step 2: watch for new ones
 
 ```bash
-python3 "${CLAUDE_SKILL_DIR}/ptr.py" new --member pelosi --read
+python3 "trader-pelosi/ptr.py" new --member pelosi --read
 ```
 
 Shows only PTRs not seen at the last check (the first run shows the last 45
@@ -79,13 +79,13 @@ days), downloads and reads them with `--read`, and records them in the state
 file. Exit code 1 means nothing new. In January it also checks last year's
 index. The Clerk rebuilds the index file about once a day (the copy read on
 2026-10-13 was stamped 09:00 that morning), so checking every hour on weekdays
-is plenty: run it with `/loop 1h` or a scheduled task.
+is plenty: run it with an hourly host job or a scheduled task.
 
 ## Step 3: read a report
 
 ```bash
-python3 "${CLAUDE_SKILL_DIR}/ptr.py" fetch 20035143
-python3 "${CLAUDE_SKILL_DIR}/ptr.py" parse ptr.txt --filed 2026-08-21 --json
+python3 "trader-pelosi/ptr.py" fetch 20035143
+python3 "trader-pelosi/ptr.py" parse ptr.txt --filed 2026-08-21 --json
 ```
 
 `fetch` saves the PDF and, if `pdftotext` is installed, prints the rows. If it
@@ -113,7 +113,7 @@ If the user wants to act on it, it goes the long way: a disclosure is weeks
 old, so it is a reason to look at a chart, not a setup. `/trader-scanner`
 and `/trader-entry` decide if there is a trade today; then shares only (the
 config has `allow_options: false`), sized by `/trader-budget`, checked by
-`/trader-risk`, placed by `/trader-broker` only after their yes.
+`/trader-risk`, placed by `/trader-broker` after risk PASS and configured broker authorization.
 
 ## The Senate: the manual route
 
@@ -147,10 +147,18 @@ does not click it or automate it. The route:
   recommendation to buy or sell anything.
 - Paper trading by default (`"paper": true` in `trader/config.json`).
 - Only `/trader-broker` submits orders after `/trader-risk` passes. With
-  `"autonomous": true` and Alpaca, use configured authorization without per-order
-  confirmation; otherwise require explicit approval.
-- No options, margin, shorting or leverage unless the config allows it and
-  the user confirms.
+  autonomy enabled (the default) and Alpaca, use configured authorization without per-order
+  confirmation; only an explicit `"autonomous": false` selects manual approval.
+- No options, margin, shorting or leverage beyond the configured permissions.
 - Congressional trades are PUBLIC disclosures filed up to 45 days after the
   trade (STOCK Act). This skill reads them fast; it has no inside
   information, and it says so.
+
+## Autonomous orchestration
+
+Autonomous Alpaca execution is the default when `autonomous` is omitted or true.
+After this skill completes, continue the configured workflow through trader-risk
+and trader-broker without asking for per-trade approval, including background
+runs and exits. This helper does not submit orders directly. Only an explicit
+`"autonomous": false` selects manual confirmation. Preserve risk limits and
+paper/live settings; broker and host permissions still apply.

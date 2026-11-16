@@ -3,7 +3,7 @@
   "created_at": "2026-10-19T14:15:00Z",
   "status": "proposed",
   "paper": true,
-  "note": "Proposals only. Nothing is placed until trader-risk passes each order and you say yes to it in the chat.",
+  "note": "Proposals only. Nothing is placed until trader-risk passes each order and trader-broker records configured authorization.",
   "source": "trader/plan.json (TSLA orb 2026-10-19)",
   "orders": [
     {

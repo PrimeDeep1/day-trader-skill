@@ -457,7 +457,7 @@ def evaluate(rules, quotes, status, state, now_utc):
                 sym = str(r.get("symbol") or "").upper()
                 if sym:
                     msg += (" If %s is still open, close it: trader-broker flatten --symbol %s builds the sell "
-                            "ticket, then trader-risk and your yes." % (sym, sym))
+                            "ticket, then trader-risk and configured broker authorization." % (sym, sym))
                 rings.append({"id": rid, "symbol": sym, "message": msg})
                 rung[rid] = stamp
             continue
@@ -618,7 +618,7 @@ def cmd_check(a):
         if rings:
             print("An alert is information, not an order. A bracket's stop-loss and take-profit already sit at "
                   "the broker: check get_open_position and record any fill (ticket.py fill). To close a "
-                  "position yourself: ticket.py flatten, then trader-risk and your yes.")
+                  "position yourself: ticket.py flatten, then trader-risk and configured broker authorization.")
     return 0 if rings else 1
 
 

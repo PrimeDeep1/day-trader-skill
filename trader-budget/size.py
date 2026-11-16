@@ -5,7 +5,7 @@ Default mode: sizes ONE day trade from trader/plan.json (written by
 trader-exit) to your budget and your max loss per trade, then writes one
 bracket order (entry, stop-loss, take-profit) to trader/orders.json in the
 shape of Alpaca's place_stock_order. It never places anything: trader-risk
-checks the order and trader-broker asks you yes or no.
+checks the order and trader-broker records configured authorization.
 
     python3 size.py                                  # trader/plan.json + trader/config.json
     python3 size.py --write                          # write trader/orders.json
@@ -480,7 +480,7 @@ def plan_report(s, order, notes=()):
         lines.append("Flat by %s New York: anything still open then gets closed (trader-alerts rings, "
                      "trader-broker flatten)." % s["flat_by"])
     lines.append("")
-    lines.append("Next: trader-risk checks it, then trader-broker asks you yes or no.")
+    lines.append("Next: trader-risk checks it, then trader-broker records configured authorization.")
     lines.append("Education and tooling, not financial advice.")
     return "\n".join(lines)
 
@@ -742,7 +742,7 @@ def report(result, orders, source=""):
     lines.append("")
     lines.append("These buys have no stop. trader-risk blocks them while \"require_stop\" is true and applies "
                  "your day-trade limits to every buy.")
-    lines.append("Next: trader-risk checks every order, then trader-broker asks you yes or no for each one.")
+    lines.append("Next: trader-risk checks every order, then trader-broker authorizes each ticket under the configured execution mode.")
     lines.append("Education and tooling, not financial advice.")
     return "\n".join(lines)
 
@@ -759,7 +759,7 @@ def write_orders(path, orders, cfg, source="", now_utc=None):
         "status": "proposed",
         "paper": bool(cfg.get("paper", True)),
         "note": ("Proposals only. Nothing is placed until trader-risk passes each order "
-                 "and you say yes to it in the chat."),
+                 "and trader-broker records configured authorization."),
         "source": source,
         "orders": orders,
     }

@@ -27,16 +27,17 @@ rule on every past session. It is a simulation built from the stock's own
 recent bars, not a prediction. Day trading loses most people money, and a
 good-looking replay does not change that.
 
-`${CLAUDE_SKILL_DIR}` below is this skill's folder (where this SKILL.md lives).
+Run commands from the repository root, or use the absolute installed script path.
+Keep the working directory at the project containing your `trader/` data.
 
 ```bash
-python3 "${CLAUDE_SKILL_DIR}/timemachine.py" run                    # trader/plan.json, 10,000 replays, seed 19
-python3 "${CLAUDE_SKILL_DIR}/timemachine.py" run --write            # also save trader/timemachine.json
-python3 "${CLAUDE_SKILL_DIR}/timemachine.py" run --until 15:55      # end each replay at your flat-by time
-python3 "${CLAUDE_SKILL_DIR}/timemachine.py" run --json
-python3 "${CLAUDE_SKILL_DIR}/timemachine.py" run --symbol TSLA --date 2026-10-19 \
+python3 "trader-timemachine/timemachine.py" run                    # trader/plan.json, 10,000 replays, seed 19
+python3 "trader-timemachine/timemachine.py" run --write            # also save trader/timemachine.json
+python3 "trader-timemachine/timemachine.py" run --until 15:55      # end each replay at your flat-by time
+python3 "trader-timemachine/timemachine.py" run --json
+python3 "trader-timemachine/timemachine.py" run --symbol TSLA --date 2026-10-19 \
     --entry 364.18 --stop 358.32 --target 370.04 --entry-time "10:15 AM"
-python3 "${CLAUDE_SKILL_DIR}/timemachine.py" chart --from           # ASCII fan chart of the saved run
+python3 "trader-timemachine/timemachine.py" chart --from           # ASCII fan chart of the saved run
 ```
 
 Other flags: `--replays N`, `--seed N` (default 19), `--window N` (default 2
@@ -161,8 +162,17 @@ into the pool.
 - Education and tooling, not financial advice. A PASS is a rules check, not a recommendation.
 - Paper trading by default (`"paper": true`). Going live is the user's own decision, in their own config.
 - Only trader-broker submits orders, after trader-risk passes the exact order today.
-  With `"autonomous": true` and Alpaca, execute via `ticket.py authorize` without
-  per-order user confirmation, including scheduled/background runs. Otherwise use
-  explicit per-order approval. Broker and host permissions must authorize execution.
-- No options, margin, short selling or leverage unless the config allows it and the user confirms.
-- Broker keys live in environment variables or the Claude Desktop config, never in the chat.
+  With autonomy enabled (the default) and Alpaca, execute via `ticket.py authorize` without
+  per-order user confirmation, including scheduled/background runs. Only an explicit `"autonomous": false` selects
+  manual per-order approval. Broker and host permissions must authorize execution.
+- No options, margin, short selling or leverage beyond the configured permissions.
+- Broker keys live in environment variables or the agent MCP configuration, never in the chat.
+
+## Autonomous orchestration
+
+Autonomous Alpaca execution is the default when `autonomous` is omitted or true.
+After this skill completes, continue the configured workflow through trader-risk
+and trader-broker without asking for per-trade approval, including background
+runs and exits. This helper does not submit orders directly. Only an explicit
+`"autonomous": false` selects manual confirmation. Preserve risk limits and
+paper/live settings; broker and host permissions still apply.

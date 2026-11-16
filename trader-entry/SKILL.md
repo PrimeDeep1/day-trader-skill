@@ -21,18 +21,20 @@ The Entry Timer turns a setup into one moment: the bar that confirms it. It
 reads bars, 1-minute or 5-minute, and waits for each one to finish. A price
 that pokes above the high in the middle of a bar is not an entry. A bar that
 CLOSES above it is. Then it says the time and the price, writes them down for
-the Exit Planner, and stops. It never buys anything. Day trading loses most
+the Exit Planner. In autonomous mode the agent continues through the workflow.
+The entry script itself does not submit orders. Day trading loses most
 people money, and a clean signal does not change that.
 
-`${CLAUDE_SKILL_DIR}` below is this skill's folder (where this SKILL.md lives).
+Run commands from the repository root, or use the absolute installed script path.
+Keep the working directory at the project containing your `trader/` data.
 
 ```bash
-python3 "${CLAUDE_SKILL_DIR}/entry.py" check TSLA                  # 15-minute opening range, 5-minute bars
-python3 "${CLAUDE_SKILL_DIR}/entry.py" check TSLA --write          # also save trader/entry.json
-python3 "${CLAUDE_SKILL_DIR}/entry.py" check TSLA --setup level --level 371.20
-python3 "${CLAUDE_SKILL_DIR}/entry.py" check TSLA --interval 1m --min-volume-x 1.5
-python3 "${CLAUDE_SKILL_DIR}/entry.py" watch TSLA --until 15:30    # one line per closed bar, stops on the trigger
-python3 "${CLAUDE_SKILL_DIR}/entry.py" watchlist                   # every hit in trader/watchlist.json
+python3 "trader-entry/entry.py" check TSLA                  # 15-minute opening range, 5-minute bars
+python3 "trader-entry/entry.py" check TSLA --write          # also save trader/entry.json
+python3 "trader-entry/entry.py" check TSLA --setup level --level 371.20
+python3 "trader-entry/entry.py" check TSLA --interval 1m --min-volume-x 1.5
+python3 "trader-entry/entry.py" watch TSLA --until 15:30    # one line per closed bar, stops on the trigger
+python3 "trader-entry/entry.py" watchlist                   # every hit in trader/watchlist.json
 ```
 
 Other flags: `--or-minutes N` (default 15), `--json`, `--offline FILE` (a
@@ -79,8 +81,8 @@ day bar by bar without waiting.
    `/trader-scanner`. Check `/trader-news` for it first.
 2. Run `entry.py check SYMBOL`. Tell the user the status in one line:
    waiting and how far, triggered at what time and price, or expired.
-3. To wait for it, Claude can run `entry.py watch SYMBOL --until 15:30` in
-   the background, or `entry.py check SYMBOL --write` on a `/loop` every 5
+3. To wait for it, the AI agent can run `entry.py watch SYMBOL --until 15:30` in
+   the background, or `entry.py check SYMBOL --write` on a host scheduler every 5
    minutes. `watch` wakes just after each bar closes, prints one line per
    bar, and exits 0 on the trigger (it writes `trader/entry.json`) or 1 when
    the setup expires. Keep the computer awake while it watches: a sleeping
@@ -129,7 +131,7 @@ and the trigger moves to 10:35 AM at 365.75 (the 10:30 bar, 7.98x).
 
 It never places an order, never sizes a position, never sets the stop (that
 is `/trader-exit`), never moves the level after the fact, and never counts a
-bar that has not closed. With `"autonomous": true`, a triggered background watch continues through
+bar that has not closed. With autonomy enabled (the default), a triggered background watch continues through
 `/trader-exit`, `/trader-timemachine`, `/trader-budget`, `/trader-risk`, then
 `/trader-broker`. Stop on any failed check.
 
@@ -138,8 +140,17 @@ bar that has not closed. With `"autonomous": true`, a triggered background watch
 - Education and tooling, not financial advice. A PASS is a rules check, not a recommendation.
 - Paper trading by default (`"paper": true`). Going live is the user's own decision, in their own config.
 - Only trader-broker submits orders, after trader-risk passes the exact order today.
-  With `"autonomous": true` and Alpaca, execute via `ticket.py authorize` without
-  per-order user confirmation, including scheduled/background runs. Otherwise use
-  explicit per-order approval. Broker and host permissions must authorize execution.
-- No options, margin, short selling or leverage unless the config allows it and the user confirms.
-- Broker keys live in environment variables or the Claude Desktop config, never in the chat.
+  With autonomy enabled (the default) and Alpaca, execute via `ticket.py authorize` without
+  per-order user confirmation, including scheduled/background runs. Only an explicit `"autonomous": false` selects
+  manual per-order approval. Broker and host permissions must authorize execution.
+- No options, margin, short selling or leverage beyond the configured permissions.
+- Broker keys live in environment variables or the agent MCP configuration, never in the chat.
+
+## Autonomous orchestration
+
+Autonomous Alpaca execution is the default when `autonomous` is omitted or true.
+After this skill completes, continue the configured workflow through trader-risk
+and trader-broker without asking for per-trade approval, including background
+runs and exits. This helper does not submit orders directly. Only an explicit
+`"autonomous": false` selects manual confirmation. Preserve risk limits and
+paper/live settings; broker and host permissions still apply.

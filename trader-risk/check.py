@@ -469,7 +469,7 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
                 reasons.append("format: a bracket order needs both take_profit_limit_price and "
                                "stop_loss_stop_price")
         elif oc or o.get("advanced_instructions"):
-            warns.append("advanced order (%s): check every leg before you say yes"
+            warns.append("advanced order (%s): check every leg before authorization"
                          % (oc or "advanced_instructions"))
 
         # asset
@@ -737,7 +737,7 @@ def report(res):
     if res["block"]:
         lines.append("Blocked orders do not go to the broker. Fix the order or your rules, then check again.")
     else:
-        lines.append("Every order passed. trader-broker still asks you yes or no for each one.")
+        lines.append("Every order passed. trader-broker can authorize and submit each ticket under the configured execution mode.")
     lines.append("Education and tooling, not financial advice.")
     return "\n".join(lines)
 

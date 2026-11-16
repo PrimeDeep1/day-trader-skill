@@ -24,14 +24,15 @@ anything in the middle of a fast move. A stop is a plan, not a guarantee: a
 gap or a fast market can fill past it. Day trading loses most people money,
 and a neat plan does not change that.
 
-`${CLAUDE_SKILL_DIR}` below is this skill's folder (where this SKILL.md lives).
+Run commands from the repository root, or use the absolute installed script path.
+Keep the working directory at the project containing your `trader/` data.
 
 ```bash
-python3 "${CLAUDE_SKILL_DIR}/exit.py" plan                          # trader/entry.json: midpoint stop, 2R target
-python3 "${CLAUDE_SKILL_DIR}/exit.py" plan --stop or-mid --target 1R --write
-python3 "${CLAUDE_SKILL_DIR}/exit.py" plan --stop atr:1.5           # needs the session's bars (Yahoo or --offline)
-python3 "${CLAUDE_SKILL_DIR}/exit.py" plan --symbol TSLA --entry 364.18 --or-high 362.18 --or-low 354.47
-python3 "${CLAUDE_SKILL_DIR}/exit.py" show                          # the current trader/plan.json
+python3 "trader-exit/exit.py" plan                          # trader/entry.json: midpoint stop, 2R target
+python3 "trader-exit/exit.py" plan --stop or-mid --target 1R --write
+python3 "trader-exit/exit.py" plan --stop atr:1.5           # needs the session's bars (Yahoo or --offline)
+python3 "trader-exit/exit.py" plan --symbol TSLA --entry 364.18 --or-high 362.18 --or-low 354.47
+python3 "trader-exit/exit.py" show                          # the current trader/plan.json
 ```
 
 Other flags: `--flat-by 15:55`, `--json`, `--now "2026-10-19 10:15"` (New
@@ -83,8 +84,8 @@ A level setup has no opening range to lean on, so it needs a stop you name.
 5. Say once that the stop is a plan, not a guarantee.
 6. Hand off to `/trader-timemachine` to replay the plan, then `/trader-budget`
    to size it to the max loss per trade. Offer `/trader-alerts` for the stop,
-   the target and the flat-by time. Claude can keep `entry.py watch` running
-   in the background or on a `/loop` until a setup triggers, then come here.
+   the target and the flat-by time. the AI agent can keep `entry.py watch` running
+   in the background or on a host scheduler until a setup triggers, then come here.
 
 ## Example: the reel
 
@@ -125,8 +126,17 @@ make a plan pass, and never calls a stop a guarantee.
 - Education and tooling, not financial advice. A PASS is a rules check, not a recommendation.
 - Paper trading by default (`"paper": true`). Going live is the user's own decision, in their own config.
 - Only trader-broker submits orders, after trader-risk passes the exact order today.
-  With `"autonomous": true` and Alpaca, execute via `ticket.py authorize` without
-  per-order user confirmation, including scheduled/background runs. Otherwise use
-  explicit per-order approval. Broker and host permissions must authorize execution.
-- No options, margin, short selling or leverage unless the config allows it and the user confirms.
-- Broker keys live in environment variables or the Claude Desktop config, never in the chat.
+  With autonomy enabled (the default) and Alpaca, execute via `ticket.py authorize` without
+  per-order user confirmation, including scheduled/background runs. Only an explicit `"autonomous": false` selects
+  manual per-order approval. Broker and host permissions must authorize execution.
+- No options, margin, short selling or leverage beyond the configured permissions.
+- Broker keys live in environment variables or the agent MCP configuration, never in the chat.
+
+## Autonomous orchestration
+
+Autonomous Alpaca execution is the default when `autonomous` is omitted or true.
+After this skill completes, continue the configured workflow through trader-risk
+and trader-broker without asking for per-trade approval, including background
+runs and exits. This helper does not submit orders directly. Only an explicit
+`"autonomous": false` selects manual confirmation. Preserve risk limits and
+paper/live settings; broker and host permissions still apply.
