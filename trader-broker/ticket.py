@@ -2,7 +2,10 @@
 """Order tickets and the decision log for trader-broker. Standard library only.
 
 This tool never talks to a broker and never places anything. It does its
-work around the one moment that matters, your yes:
+work around authorization (configured autonomy or an explicit yes):
+
+  authorize records configured autonomous authorization for ONE READY Alpaca
+            order, without a user reply. Requires config autonomous: true.
 
   show      renders each proposed order as a plain-English ticket plus the
             exact JSON Claude will send to Alpaca's place_stock_order tool.
@@ -18,7 +21,7 @@ work around the one moment that matters, your yes:
             placed (with the broker's order id), denied, or failed.
   fill      records a fill in trader/portfolio.json (cash and shares).
   flatten   builds a sell ticket that closes a symbol's open position by
-            flat_by. It still goes through trader-risk and your yes.
+            flat_by. It still goes through trader-risk and authorization.
   log       prints today's decisions.
 
     python3 ticket.py show                    # every order, READY or not
@@ -335,9 +338,9 @@ def status_of(order, risk, state, today):
     if rec:
         st = rec.get("status")
         if st == "approved":
-            return False, "APPROVED by you at %s, waiting for the place_stock_order call" % rec.get("at"), rv
+            return False, "APPROVED at %s, waiting for the place_stock_order call" % rec.get("at"), rv
         return False, "DONE: %s at %s" % (st, rec.get("at")), rv
-    return True, "READY: trader-risk PASS, waiting for your yes", rv
+    return True, "READY: trader-risk PASS, ready for authorization", rv
 
 
 def kind_of(order, rv):
@@ -372,7 +375,9 @@ def render(order, idx, total, cfg, risk, state, today):
         if is_bracket(order):
             lines.append("  Alpaca places the entry, then the stop-loss and the take-profit as two orders")
             lines.append("  that cancel each other: when one fills, the other is canceled.")
-    if ready:
+    if ready and cfg.get("autonomous") is True and broker == "alpaca":
+        lines.append("  Run ticket.py authorize --index %d, then submit the exact tool input." % idx)
+    elif ready:
         lines.append("  Reply \"yes\" to place this one order, or \"no\" to skip it.")
         if broker != "ibkr":
             lines.append("  Claude's own card then asks again: Allow once places it, Deny stops it.")
@@ -492,7 +497,7 @@ def cmd_show(a):
         blocks.append(text)
         any_ready = any_ready or ready
     print("\n\n".join(blocks))
-    print("\nOne order at a time: a yes covers one ticket, never the batch. Education and tooling, "
+    print("\nOne order at a time. Education and tooling, "
           "not financial advice.")
     return 0 if any_ready else 1
 
@@ -503,7 +508,11 @@ def cmd_approve(a):
     ready, label, rv = status_of(order, risk, state, today)
     if not ready:
         raise TicketError("order %d is not ready: %s" % (a.index, label))
-    ok, why = parse_yes(a.reply, order, [o.get("symbol", "") for o in orders])
+    autonomous = a.cmd == "authorize"
+    if autonomous and (cfg.get("autonomous") is not True or cfg.get("broker", "alpaca") != "alpaca"):
+        raise TicketError('authorize requires "autonomous": true and broker alpaca in config')
+    ok, why = (True, "configured autonomous execution") if autonomous else parse_yes(
+        a.reply, order, [o.get("symbol", "") for o in orders])
     if not ok:
         print("Not recorded: %s. Ask the user again with the ticket for order %d." % (why, a.index))
         return 1
@@ -511,17 +520,19 @@ def cmd_approve(a):
     rec = {"at": ny_iso(now), "date": today, "index": a.index, "fingerprint": fingerprint(order),
            "symbol": str(order.get("symbol", "")).upper(), "side": order.get("side"),
            "qty": order.get("qty"), "kind": kind_of(order, rv), "max_loss": loss, "stop": stop,
-           "plain": plain(order), "status": "approved", "reply": a.reply,
+           "plain": plain(order), "status": "approved", "reply": None if autonomous else a.reply,
+           "authorization": "autonomous" if autonomous else "user",
            "paper": bool(cfg.get("paper", True)), "broker": cfg.get("broker", "alpaca")}
     state.setdefault("orders", []).append(rec)
     write_json(a.state, state)
-    print("Recorded your yes for order %d: %s." % (a.index, plain(order)))
+    print(("Recorded autonomous authorization" if autonomous else "Recorded your yes")
+          + " for order %d: %s." % (a.index, plain(order)))
     if str(cfg.get("broker", "alpaca")).lower() == "ibkr":
         print("Now draft it with the Interactive Brokers connector; approve it in your IBKR account.")
     else:
         print("Now call place_stock_order with exactly:")
         print(json.dumps(tool_input(order), indent=2))
-        print("Claude's card shows Allow once / Deny. Then: ticket.py result --index %d --status "
+        print(("Then: " if autonomous else "Claude's card shows Allow once / Deny. Then: ") + "ticket.py result --index %d --status "
               "placed|denied|failed" % a.index)
     return 0
 
@@ -544,7 +555,7 @@ def cmd_result(a):
     fp = fingerprint(order)
     rec = latest(state, fp, today)
     if not rec or rec.get("status") != "approved":
-        raise TicketError("order %d has no yes recorded today; a result can only follow an approval" % a.index)
+        raise TicketError("order %d has no authorization recorded today; a result can only follow an approval" % a.index)
     new = {"at": ny_iso(now), "date": today, "index": a.index, "fingerprint": fp, "symbol": rec["symbol"],
            "side": rec["side"], "plain": rec["plain"], "status": a.status}
     for k in ("qty", "kind", "max_loss", "stop"):
@@ -610,21 +621,24 @@ def cmd_flatten(a):
     replaced = len(old.get("orders", [])) if isinstance(old, dict) else 0
     doc = {"created_by": "trader-broker", "created_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "status": "proposed",
            "paper": bool(cfg.get("paper", True)),
-           "note": "Flatten ticket. Nothing is placed until trader-risk passes it and you say yes in the chat.",
+           "note": "Flatten ticket. Requires trader-risk PASS and recorded authorization.",
            "source": "ticket.py flatten %s on %s" % (sym, today), "orders": [order]}
     write_json(a.orders, doc)
     print("Flatten %s: %s (flat by %s New York)." % (sym, plain(order), flat_by))
     print("Wrote it to %s%s." % (a.orders, (" (it replaced %d earlier proposal%s)"
                                              % (replaced, "" if replaced == 1 else "s")) if replaced else ""))
     if a.qty is None:
-        print("The qty comes from %s. Check it against get_open_position %s before you say yes." % (source, sym))
+        print("The qty comes from %s. Check it against get_open_position %s before authorization." % (source, sym))
     print("Next:")
     print("  1. trader-risk: check.py. A sell that only closes what you hold is never blocked by the daily")
     print("     limits or the entry window.")
-    print("  2. ticket.py show, then the user's yes for this one order.")
+    if cfg.get("autonomous") is True and cfg.get("broker", "alpaca") == "alpaca":
+        print("  2. ticket.py show, then ticket.py authorize --index 1; no per-order confirmation.")
+    else:
+        print("  2. ticket.py show, then the user's yes for this one order.")
     print("  3. If the bracket's stop-loss and take-profit are still open, Alpaca holds these shares for them")
     print("     and rejects a new sell. Cancel them first: get_orders (status open, nested true), then")
-    print("     cancel_order_by_id for each open leg (Needs approval). Then place_stock_order with the ticket.")
+    print("     cancel_order_by_id for each open leg (configured tool permission). Then place_stock_order with the ticket.")
     return 0
 
 
@@ -669,6 +683,9 @@ def main(argv=None):
     common(p)
     p.add_argument("--index", type=int, required=True)
     p.add_argument("--reply", required=True, help="the user's reply, word for word")
+    p = sub.add_parser("authorize", help="authorize one risk-passed order using autonomous config")
+    common(p)
+    p.add_argument("--index", type=int, required=True)
     p = sub.add_parser("decline", help="record a no")
     common(p)
     p.add_argument("--index", type=int, required=True)
@@ -709,7 +726,7 @@ def main(argv=None):
         ap.print_help()
         return 1
     try:
-        return {"show": cmd_show, "approve": cmd_approve, "decline": cmd_decline, "result": cmd_result,
+        return {"show": cmd_show, "approve": cmd_approve, "authorize": cmd_approve, "decline": cmd_decline, "result": cmd_result,
                 "fill": cmd_fill, "flatten": cmd_flatten, "log": cmd_log}[a.cmd](a)
     except TicketError as e:
         print("ticket.py: %s" % e, file=sys.stderr)

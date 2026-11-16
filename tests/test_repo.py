@@ -55,7 +55,8 @@ class Repo(unittest.TestCase):
             _, text = frontmatter(os.path.join(ROOT, s, "SKILL.md"))
             low = " ".join(text.lower().split())
             self.assertIn("not financial advice", low, s)
-            self.assertIn("yes", low, s)
+            self.assertIn("autonomous", low, s)
+            self.assertIn("trader-risk", low, s)
 
     def test_plugin_manifest_points_at_the_root_skills(self):
         with open(os.path.join(ROOT, ".claude-plugin", "plugin.json")) as fh:
@@ -73,8 +74,8 @@ class Repo(unittest.TestCase):
             readme = " ".join(fh.read().split())
         self.assertTrue(readme.startswith("# The Day Trader skill"))
         for line in (ABOUT,
-                     "https://github.com/Jakeschincariol/day-trader-skill install skill",
-                     "/plugin marketplace add Jakeschincariol/day-trader-skill",
+                     "https://github.com/PrimeDeep1/day-trader-skill install skill",
+                     "/plugin marketplace add PrimeDeep1/day-trader-skill",
                      "/plugin install day-trader-skill@day-trader-skill",
                      "## Fine print"):
             self.assertIn(line, readme)

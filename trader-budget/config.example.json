@@ -16,6 +16,7 @@
   "fractional": false,
   "broker": "alpaca",
   "paper": true,
+  "autonomous": true,
   "blocked": [],
   "allow_options": false,
   "allow_margin": false,

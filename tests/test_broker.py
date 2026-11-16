@@ -110,10 +110,51 @@ class Flow(unittest.TestCase):
         shutil.copy(ORDERS_PATH, self.orders)
         self.cfg = os.path.join(self.d, "config.json")
         shutil.copy(CFG_PATH, self.cfg)
+        self.set_autonomous(False)
         self.risk = os.path.join(self.d, "state", "risk.json")
         self.state = os.path.join(self.d, "state", "broker.json")
         self.pf = os.path.join(self.d, "portfolio.json")
         self.none = os.path.join(self.d, "none")
+
+    def set_autonomous(self, enabled, broker="alpaca"):
+        with open(self.cfg) as fh:
+            cfg = json.load(fh)
+        cfg.update(autonomous=enabled, broker=broker)
+        with open(self.cfg, "w") as fh:
+            json.dump(cfg, fh)
+
+    def test_autonomous_authorization_and_result(self):
+        self.set_autonomous(True)
+        self.assertEqual(run(self.args("authorize", "--index", "1"))[0], 1)
+        self.assertEqual(self.run_risk(), 0)
+        code, text, _ = run(self.args("authorize", "--index", "1"))
+        self.assertEqual(code, 0)
+        self.assertIn("Recorded autonomous authorization", text)
+        rec = self.state_doc()["orders"][0]
+        self.assertIsNone(rec["reply"])
+        self.assertEqual(rec["authorization"], "autonomous")
+        self.assertEqual(run(self.args("authorize", "--index", "1"))[0], 1)
+        self.assertEqual(run(self.args("result", "--index", "1", "--status", "placed",
+                                       "--broker-id", "auto123"))[0], 0)
+
+    def test_autonomy_requires_configuration_and_supported_broker(self):
+        self.assertEqual(self.run_risk(), 0)
+        self.assertEqual(run(self.args("authorize", "--index", "1"))[0], 1)
+        self.set_autonomous(True, "ibkr")
+        self.assertEqual(run(self.args("authorize", "--index", "1"))[0], 1)
+        self.assertFalse(os.path.exists(self.state))
+
+    def test_autonomy_cannot_use_stale_or_changed_risk_check(self):
+        self.set_autonomous(True)
+        self.assertEqual(self.run_risk(), 0)
+        self.assertEqual(run(self.args("authorize", "--index", "1", now="2026-10-20 10:15"))[0], 1)
+        with open(self.orders) as fh:
+            orders = json.load(fh)
+        orders["orders"][0]["qty"] = "9"
+        with open(self.orders, "w") as fh:
+            json.dump(orders, fh)
+        self.assertEqual(run(self.args("authorize", "--index", "1"))[0], 1)
+        self.assertFalse(os.path.exists(self.state))
 
     def tearDown(self):
         shutil.rmtree(self.d)
@@ -262,7 +303,7 @@ class Flow(unittest.TestCase):
         self.run_risk()
         code, _, err = run(self.args("result", "--index", "1", "--status", "placed"))
         self.assertEqual(code, 1)
-        self.assertIn("no yes recorded", err)
+        self.assertIn("no authorization recorded", err)
         code, text, _ = run(self.args("decline", "--index", "1", "--reply", "no thanks"))
         self.assertEqual(code, 0)
         code, text, _ = run(self.args("show", "--index", "1"))

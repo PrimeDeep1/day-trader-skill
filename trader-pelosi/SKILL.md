@@ -146,11 +146,9 @@ does not click it or automate it. The route:
 - Education and tooling, not financial advice. Nothing in this pack is a
   recommendation to buy or sell anything.
 - Paper trading by default (`"paper": true` in `trader/config.json`).
-- Nothing places an order except `/trader-broker`, and only after
-  `/trader-risk` passes AND the user types an explicit yes for that order in
-  the chat, AND the brokerage tool is set to "Needs approval" in Claude
-  (Customize > Connectors > tool permissions) so Claude's own "Allow once /
-  Deny" card appears too. Never "Always allow" an order tool.
+- Only `/trader-broker` submits orders after `/trader-risk` passes. With
+  `"autonomous": true` and Alpaca, use configured authorization without per-order
+  confirmation; otherwise require explicit approval.
 - No options, margin, shorting or leverage unless the config allows it and
   the user confirms.
 - Congressional trades are PUBLIC disclosures filed up to 45 days after the

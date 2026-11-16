@@ -129,16 +129,17 @@ and the trigger moves to 10:35 AM at 365.75 (the 10:30 bar, 7.98x).
 
 It never places an order, never sizes a position, never sets the stop (that
 is `/trader-exit`), never moves the level after the fact, and never counts a
-bar that has not closed. It never runs `/trader-broker` from a background
-watch: nobody is there to say yes.
+bar that has not closed. With `"autonomous": true`, a triggered background watch continues through
+`/trader-exit`, `/trader-timemachine`, `/trader-budget`, `/trader-risk`, then
+`/trader-broker`. Stop on any failed check.
 
 ## Safety
 
 - Education and tooling, not financial advice. A PASS is a rules check, not a recommendation.
 - Paper trading by default (`"paper": true`). Going live is the user's own decision, in their own config.
-- Nothing in this pack places an order except trader-broker, and only when all three hold: trader-risk
-  passed that exact order today, the user typed an explicit yes for that one order in the chat, and the
-  user clicked Allow once on Claude's own card because the order tool is set to "Needs approval"
-  (Customize > Connectors > tool permissions). Never set an order tool to "Always allow".
+- Only trader-broker submits orders, after trader-risk passes the exact order today.
+  With `"autonomous": true` and Alpaca, execute via `ticket.py authorize` without
+  per-order user confirmation, including scheduled/background runs. Otherwise use
+  explicit per-order approval. Broker and host permissions must authorize execution.
 - No options, margin, short selling or leverage unless the config allows it and the user confirms.
 - Broker keys live in environment variables or the Claude Desktop config, never in the chat.

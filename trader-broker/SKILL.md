@@ -1,59 +1,22 @@
 ---
 name: trader-broker
 description: >-
-  Order Executor. Sends approved orders to your broker, paper trading by
-  default, never without your yes. Shows each order as a plain ticket (a
-  bracket shows its stop-loss, take-profit and the max loss at the stop)
-  plus the exact JSON for Alpaca's place_stock_order, records your yes word
-  for word, then Claude's own Allow once / Deny card asks again. Builds the
-  sell ticket that closes a day trade by your flat-by time, records fills,
-  and logs each trade's max loss so trader-risk can hold the daily limit.
-  Covers setting up Alpaca's official MCP server in Claude Desktop (paper by
-  default, keys in env vars, never in chat), the Interactive Brokers
-  connector, and setting order tools to "Needs approval". Use when the user
-  says "place the order", "buy it", "execute", "send it to my broker",
-  "close my position", "flatten", "get me out", "connect Alpaca", "set up
-  paper trading", or after /trader-risk passes.
+  Order Executor. Autonomously submits risk-passed Alpaca orders when configured,
+  paper by default. Records authorization, orders and fills; closes positions
+  by flat_by. Use after trader-risk passes or to execute or close a trade.
 argument-hint: "[order number]"
 ---
 
 # trader-broker
 
-The Order Executor is the only skill in this pack that can lead to a real
-order, so it is the strictest. An order reaches the market only after three
-separate gates, every time, for every order:
+Only this skill submits orders. With `"autonomous": true` in
+`trader/config.json` and `"broker": "alpaca"`, execute without per-order user
+confirmation, including scheduled/background runs. Never invent a user reply.
+With autonomy absent or false, use `ticket.py approve --reply` with the user's
+actual explicit yes. IBKR retains its provider-required review.
 
-1. **trader-risk passed this exact order today** (matched by fingerprint).
-2. **The user typed an explicit yes for this one order** in the chat.
-3. **The user clicked Allow once** on Claude's own permission card, which
-   appears because the order tool is set to "Needs approval".
-
-Two yeses from the user, one PASS from the rules. No yes, no order.
-
-`${CLAUDE_SKILL_DIR}` below is this skill's folder (where this SKILL.md lives).
-
-```bash
-python3 "${CLAUDE_SKILL_DIR}/ticket.py" show                     # every ticket, READY or not
-python3 "${CLAUDE_SKILL_DIR}/ticket.py" approve --index 1 --reply "yes"
-python3 "${CLAUDE_SKILL_DIR}/ticket.py" result --index 1 --status placed --broker-id ID --filled-qty 8 --filled-price 364.20
-python3 "${CLAUDE_SKILL_DIR}/ticket.py" fill --symbol TSLA --side sell --qty 8 --price 370.04
-python3 "${CLAUDE_SKILL_DIR}/ticket.py" flatten --symbol TSLA --qty 8
-python3 "${CLAUDE_SKILL_DIR}/ticket.py" log
-```
-
-`ticket.py` never talks to a broker. It renders tickets, checks that a reply
-is a real yes for that order, builds the flatten ticket, and keeps the log in
-`trader/state/broker.json`. `--now "2026-10-19 10:15"` pins the clock (New York time).
-
-## What it reads and writes
-
-| file | what |
-| --- | --- |
-| `trader/orders.json` | the proposed orders (trader-budget writes it; `flatten` replaces it) |
-| `trader/state/risk.json` | trader-risk's verdicts; only a PASS from today is READY |
-| `trader/state/broker.json` | every yes, no, placed, failed and filled, with each entry's max loss |
-| `trader/portfolio.json` | cash and shares, updated by `fill` and by `result --filled-qty` |
-| `trader/plan.json` | the flat-by time for `flatten` |
+`${CLAUDE_SKILL_DIR}` is this skill's folder. `ticket.py` prepares and logs
+orders; it does not contact a broker. A running agent must call the broker.
 
 ## Setup A: Alpaca (official MCP server, Claude Desktop)
 
@@ -97,10 +60,11 @@ against its source on 2026-10-20 (version 2.4.0).
 5. **Set the tool permissions.** Customize > Connectors (Settings > Connectors
    in older versions), open alpaca, and for each tool pick Always allow, Needs
    approval or Blocked:
-   - `place_stock_order`: **Needs approval**. Never Always allow.
+   - `place_stock_order`: **Always allow** for configured autonomy; otherwise Needs approval.
    - every other tool that places, changes, cancels or closes anything
      (`cancel_order_by_id`, `replace_order_by_id`, `close_position`,
-     `update_account_config`): Needs approval.
+     `update_account_config`): Needs approval. For autonomy, allow only
+     `cancel_order_by_id` as needed to close a bracket position.
    - `place_option_order`, `place_crypto_order`, `close_all_positions`,
      `cancel_all_orders`, `exercise_options_position`,
      `do_not_exercise_options_position`: **Blocked** unless the user has a
@@ -111,9 +75,10 @@ against its source on 2026-10-20 (version 2.4.0).
 6. Check it: ask Claude for the Alpaca account info (read only) and confirm
    in the Alpaca dashboard that it is the paper account.
 
-In Claude Code instead of Claude Desktop, keep the order tool on ask in
-`.claude/settings.json`: `"permissions": {"ask": ["mcp__alpaca__place_stock_order"]}`,
-and never put an order tool in `allow`.
+In Claude Code, for configured autonomy use `.claude/settings.json`:
+`"permissions": {"allow": ["mcp__alpaca__place_stock_order", "mcp__alpaca__cancel_order_by_id"]}`.
+Otherwise keep the order tool in `ask`. Host or broker restrictions still apply;
+these instructions cannot override them.
 
 **Bracket orders on Alpaca.** `place_stock_order` takes
 `take_profit_limit_price` and `stop_loss_stop_price` (and an optional
@@ -135,66 +100,38 @@ submits orders directly to the market. So with IBKR the final yes happens in
 IBKR as well. Set `"broker": "ibkr"` in `trader/config.json`. Set its tools
 that draft orders to Needs approval too.
 
-## Steps: the entry
+## Execution workflow
 
-1. `ticket.py show`. Only READY tickets go to the user. A ticket that is NOT
-   READY or BLOCKED goes back to `/trader-risk`.
-2. Show ONE ticket and ask: "Place this order? Reply yes or no." One order
-   per question. Never offer "yes to all".
-3. Run `ticket.py approve --index N --reply "<the user's reply, word for word>"`.
-   If it prints "Not recorded", the reply was not an explicit yes for this
-   order (for example "sure", "yes to all", or a yes that names a different
-   stock or amount). Ask again. Never turn a reply into a yes yourself.
-4. Only after "Recorded your yes", call `place_stock_order` with exactly the
-   JSON the ticket printed. Claude's card appears: Allow once or Deny.
-5. Record what happened: `ticket.py result --index N --status placed
-   --broker-id <id> --filled-qty Q --filled-price P` (the fill from the
-   response or `get_open_position`), or `--status denied`, or `--status failed`
-   with `--note`. A failed order is not retried without a new check and a new yes.
-   The log keeps the entry's max loss for trader-risk's daily limit.
+1. Read `trader/config.json`, sync broker cash, positions and open orders into
+   `trader/portfolio.json`, and run `/trader-risk` on the final orders.
+2. Run `ticket.py show`. Only READY tickets can proceed. For each ticket in
+   autonomous Alpaca mode run `ticket.py authorize --index N`. Otherwise show
+   the ticket, ask for its explicit yes, and use `approve --index N --reply`.
+3. Only after successful authorization, call `place_stock_order` with exactly
+   the printed JSON. Do not ask for another yes in autonomous mode.
+4. Record `ticket.py result --index N --status placed --broker-id ID`, or
+   `--status denied|failed --note REASON`. Record actual fills with
+   `--filled-qty Q --filled-price P` or `ticket.py fill`. Never record assumed
+   fills. After a timeout or ambiguous response, reconcile broker orders before
+   doing anything else; never blindly retry. A failed ticket needs a fresh
+   risk check and a new ticket decision before retrying.
+5. Before authorizing another order, sync broker state and rerun risk so daily
+   limits include prior submissions. Never batch-authorize against stale state.
 
-## Steps: while it is open, and out by the close
+## Positions and the close
 
-- trader-alerts watches the stop, the target and the flat-by time
-  (`alerts.py add --from-plan`). The bracket's own orders do the stopping.
-- When the stop-loss or the take-profit fills, record it:
-  `ticket.py fill --symbol TSLA --side sell --qty 8 --price 358.32`.
-- By `flat_by` (15:55 New York), anything still open gets closed:
-  1. Ask Alpaca how many shares are held: `get_open_position` (read only).
-  2. `ticket.py flatten --symbol TSLA --qty 8` writes a market sell for those
-     shares to `trader/orders.json`.
-  3. `/trader-risk`. A sell that only closes what the user holds is never
-     blocked by the daily limits or the entry window.
-  4. `ticket.py show`, then the user's yes for that one order, as above.
-  5. The bracket's stop-loss and take-profit still hold those shares, so
-     Alpaca rejects a new sell until they are canceled: `get_orders` (status
-     open, nested true) shows them; `cancel_order_by_id` each one (Needs
-     approval). Then `place_stock_order` with the ticket, then `result`.
-
-## Example: the reel
-
-```
-ORDER 1 of 1, PAPER account, Alpaca
-  BUY 8 TSLA, market, good for today
-  stop-loss 358.32
-  take-profit 370.04
-  max loss about $46.88 if the stop fills at 358.32 (it can fill worse in a fast market)
-  why: opening-range breakout on TSLA: 8 shares, bound by your $50 max loss per trade (8 x 5.86 = $46.88 at the stop)
-  READY: trader-risk PASS, waiting for your yes
-  Claude will call place_stock_order with exactly:
-    {"symbol": "TSLA", "side": "buy", "qty": "8", "type": "market", "time_in_force": "day",
-     "order_class": "bracket", "take_profit_limit_price": "370.04", "stop_loss_stop_price": "358.32"}
-```
-
-The user replies "yes". Claude records it, calls `place_stock_order`, and the
-card reads "Claude wants to use Place stock order" with that JSON and two
-buttons: Allow once, Deny. Allow once sends it to the paper account. The
-`why` and the plan stay in the file; they are never sent.
+Register `alerts.py add --from-plan` and monitor positions. Bracket legs run
+at the broker. Record stop/target fills. At `flat_by`, reconcile holdings,
+run `ticket.py flatten --symbol SYMBOL --qty Q`, then `/trader-risk` and the
+same authorization workflow. Cancel only that position's open bracket legs,
+verify their status and remaining shares, then submit the closing ticket.
+Use autonomous authorization for exits too. A scheduler/running agent is
+required for monitoring and closing; this skill does not install one.
 
 ## What it never does
 
-- Never places an order without all three gates, and never two orders on one yes.
-- Never places orders from a scheduled or background task: nobody is there to say yes.
+- Never submits without exact-order risk PASS and recorded authorization.
+- Scheduled/background execution requires configured autonomy and authorized host tools.
 - Never asks for, reads, stores or repeats API keys or passwords.
 - Never switches `ALPACA_PAPER_TRADE` or `"paper"` to live. The user does that themselves.
 - Never calls `close_all_positions`, `cancel_all_orders`, option or crypto order tools on its own.
@@ -204,9 +141,9 @@ buttons: Allow once, Deny. Allow once sends it to the paper account. The
 
 - Education and tooling, not financial advice. A PASS is a rules check, not a recommendation.
 - Paper trading by default (`"paper": true`). Going live is the user's own decision, in their own config.
-- Nothing in this pack places an order except trader-broker, and only when all three hold: trader-risk
-  passed that exact order today, the user typed an explicit yes for that one order in the chat, and the
-  user clicked Allow once on Claude's own card because the order tool is set to "Needs approval"
-  (Customize > Connectors > tool permissions). Never set an order tool to "Always allow".
+- Only trader-broker submits orders, after trader-risk passes the exact order today.
+  With `"autonomous": true` and Alpaca, execute via `ticket.py authorize` without
+  per-order user confirmation, including scheduled/background runs. Otherwise use
+  explicit per-order approval. Broker and host permissions must authorize execution.
 - No options, margin, short selling or leverage unless the config allows it and the user confirms.
 - Broker keys live in environment variables or the Claude Desktop config, never in the chat.

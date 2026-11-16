@@ -13,8 +13,9 @@ craziest one is the Time Machine: before you risk a dollar, it replays the
 rest of the session 10,000 times from the stock's own recent bars, plus every
 past day the same setup fired, and tells you the honest odds.
 
-And no trade goes through until you say yes. Nothing in this pack can place
-an order on its own. Paper trading is the default.
+This fork enables autonomous Alpaca execution with `"autonomous": true` in
+`trader/config.json` (included in the example config). No per-trade chat approval
+is needed. Paper trading remains the default; risk limits still apply.
 
 > **Looking for the original Trader skill?** Copy an investor's 13F, the
 > stock screener, tax lots and rebalancing live in
@@ -26,7 +27,7 @@ an order on its own. Paper trading is the default.
 Paste this into Claude:
 
 ```
-https://github.com/Jakeschincariol/day-trader-skill
+https://github.com/PrimeDeep1/day-trader-skill
 
 install skill
 ```
@@ -34,7 +35,7 @@ install skill
 Or as a plugin, in Claude Code:
 
 ```
-/plugin marketplace add Jakeschincariol/day-trader-skill
+/plugin marketplace add PrimeDeep1/day-trader-skill
 /plugin install day-trader-skill@day-trader-skill
 ```
 
@@ -43,7 +44,7 @@ Claude Code namespaces plugin skills, so installed as a plugin they show up as
 plain `/trader-scanner`:
 
 ```bash
-git clone https://github.com/Jakeschincariol/day-trader-skill.git
+git clone https://github.com/PrimeDeep1/day-trader-skill.git
 cp -r day-trader-skill/trader-* ~/.claude/skills/
 ```
 
@@ -68,7 +69,7 @@ or in the `SEC_USER_AGENT` environment variable.
 | `/trader-timemachine` | Time Machine | Replays every possible outcome of a trade before you risk a dollar: 10,000 simulated sessions plus every past time the setup fired. |
 | `/trader-risk` | Risk Manager | Checks every trade against your limits and stops anything over them. |
 | `/trader-budget` | Budget Manager | Sizes every position to your budget and your max loss per trade. |
-| `/trader-broker` | Order Executor | Sends approved orders to your broker, paper trading by default, never without your yes. |
+| `/trader-broker` | Order Executor | Submits risk-passed orders autonomously with Alpaca, paper by default. |
 | `/trader-alerts` | Price Alerts | Rings when a price, a stop or the opening bell hits. |
 | `/trader-analyst` | Earnings Analyst | Reads earnings reports and sums up what changed. |
 | `/trader-pelosi` | Pelosi Tracker | Reads Congress's stock-trade disclosures the minute they are filed. |
@@ -113,10 +114,9 @@ An example, the trade in the reel: Tesla, Monday October 19 2026, real data.
 7. **`/trader-risk`** checks it against your limits: the max loss, the daily
    loss limit, trades per day, reward to risk, the entry window, position
    size and cash. PASS or BLOCK, with the reason.
-8. **`/trader-broker`** shows you the ticket in plain words. You type yes for
-   that exact order. Claude calls your brokerage connector (Alpaca's MCP
-   server, paper account by default), and Claude's own "Allow once / Deny"
-   card asks you one more time.
+8. **`/trader-broker`** records autonomous authorization with
+   `ticket.py authorize --index 1`, calls the authorized Alpaca tool with the
+   exact ticket JSON, and records the broker result and actual fills.
 9. **`/trader-alerts`** rings on the stop, the target and at 3:55 PM to
    flatten whatever is still open.
 
@@ -159,12 +159,14 @@ arithmetic. It does not know your situation and it cannot see the future.
 Most people who day trade lose money. You can lose money. Decide for
 yourself, and talk to a licensed professional if you need advice.
 
-**No trade goes through until you say yes.** Only `/trader-broker` can lead to
-an order, and only after `/trader-risk` passes that exact order and you type
-yes for it in the chat. Set your brokerage tool to "Needs approval" in Claude
-(Customize, Connectors, tool permissions), never "Always allow", so Claude's
-own "Allow once / Deny" card is a second check. No options, margin, short
-selling or leverage unless you turn them on.
+**Autonomous setup.** Copy `trader-budget/config.example.json` to
+`trader/config.json`, set your budget and risk limits, and connect Alpaca as
+explained in `trader-broker/SKILL.md`. Authorize the stock-order and specific
+bracket-cancellation tools in your agent host for unattended execution.
+A running agent/scheduler must drive the workflow; these skills alone are not
+a standalone robot. Host policies and broker permissions still apply. IBKR's
+connector retains its own review requirement. Set `"autonomous": false` for
+per-order approval. Do not change risk limits or live/paper mode automatically.
 
 **Paper first.** `"paper": true` is the default in `config.example.json`, and
 Alpaca's MCP server defaults to its paper account. Keys live in environment
